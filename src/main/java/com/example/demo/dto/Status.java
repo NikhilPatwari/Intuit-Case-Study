@@ -2,10 +2,12 @@ package com.example.demo.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
+import lombok.Getter;
 
 import java.util.List;
 
 @Builder
+@Getter
 public class Status {
     @JsonProperty("status")
     private String status;
@@ -20,8 +22,9 @@ public class Status {
 
     public static Status getErrorStatus(List<String> errors){
         return Status.builder()
-                .status("FAILURE")
+                .status("FAILED")
                 .errors(errors)
                 .build();
     }
+
 }
