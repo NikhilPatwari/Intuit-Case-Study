@@ -1,4 +1,4 @@
-package com.example.demo.dto;
+package com.example.demo.dto.response.product_validation;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -15,7 +15,7 @@ import java.util.List;
 public class ApprovalResponse {
 
     @JsonProperty("status")
-    private String status;
+    private ApprovalStatus status;
 
     @JsonProperty("errors")
     private List<String> errors;

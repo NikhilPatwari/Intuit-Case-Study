@@ -1,7 +1,8 @@
 package com.example.demo.models;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Builder;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -10,11 +11,11 @@ import javax.validation.Valid;
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 @Data
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Builder
 @Document(collection = "businessProfile")
 public class BusinessProfile {
     @Id
@@ -40,10 +41,10 @@ public class BusinessProfile {
     @JsonProperty("businessAddress")
     private Address businessAddress;
 
-    @JsonProperty("PAN")
+    @JsonProperty("pan")
     private String pan;
 
-    @JsonProperty("EIN")
+    @JsonProperty("ein")
     private String ein;
 
     @NotBlank(message = "Field : 'email' cannot be blank", groups = {CreateProfileGrp.class, UpdateProfileGrp.class})
@@ -54,6 +55,7 @@ public class BusinessProfile {
     @JsonProperty("website")
     private String website;
 
-    @JsonProperty("subscribedProducts")
-    private List<String> subscribedProducts = new ArrayList<>(0);
+    @JsonIgnore
+    @Builder.Default
+    private Set<String> subscribedProducts = new HashSet<>(0);
 }

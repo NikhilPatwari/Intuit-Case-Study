@@ -1,16 +1,15 @@
 package com.example.demo.service;
 
-import com.example.demo.dto.Status;
 import com.example.demo.models.BusinessProfile;
 
-import java.util.concurrent.ExecutionException;
+import java.util.Map;
 
 public interface BusinessProfileManager {
     BusinessProfile getBusinessProfileById(String id);
 
-    Status deleteProfile(String id);
+    void deleteProfile(String id);
 
-    Status createProfile(BusinessProfile profile, String product);
+    Map<String, String> createProfile(BusinessProfile profile, String product);
 
-    Status updateProfile(BusinessProfile profile, String product);
+    void updateProfile(BusinessProfile profile, String product);
 }

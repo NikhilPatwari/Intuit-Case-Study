@@ -1,50 +1,50 @@
 package com.example.demo.service.impl;
 
-import com.example.demo.dto.ApprovalResponse;
-import com.example.demo.dto.Status;
+import com.example.demo.dto.response.product_validation.ApprovalResponse;
+import com.example.demo.dto.response.product_validation.ApprovalStatus;
 import com.example.demo.exception.AlreadyExistsException;
 import com.example.demo.exception.NotFoundException;
 import com.example.demo.exception.ServiceUnavailableException;
 import com.example.demo.exception.ValidationFailureException;
 import com.example.demo.models.BusinessProfile;
 import com.example.demo.repository.BusinessProfileRepository;
-import com.example.demo.resource.AsyncCallService;
-import com.example.demo.resource.ProductResource;
 import com.example.demo.service.BusinessProfileManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor(onConstructor = @__(@Autowired))
 public class BusinessProfileManagerImpl implements BusinessProfileManager {
     private final BusinessProfileRepository repository;
-    private final ProductResource productResource;
-    private final AsyncCallService asyncCallService;
+    private final AsyncService asyncService;
+    private final Environment env;
+
     @Override
     public BusinessProfile getBusinessProfileById(String id) {
         return repository.findById(id).orElseThrow(() -> new NotFoundException(BusinessProfile.class.getSimpleName()));
     }
 
     @Override
-    public Status createProfile(BusinessProfile profile, String product) {
+    public Map<String, String> createProfile(BusinessProfile profile, String product) {
         if (StringUtils.isNotBlank(product)) {
-            profile.setSubscribedProducts(Collections.singletonList(product));
+            profile.setSubscribedProducts(Collections.singleton(product));
         }
         long count = getCountByPanOrEin(profile.getPan(), profile.getEin());
         if (count != 0) {
             throw new AlreadyExistsException(BusinessProfile.class.getSimpleName());
         }
-        repository.save(profile);
-        return Status.getSuccessStatus();
+        String id = repository.save(profile).getId();
+        return Collections.singletonMap("id", id);
     }
 
     private long getCountByPanOrEin(String pan, String ein) {
@@ -59,62 +59,70 @@ public class BusinessProfileManagerImpl implements BusinessProfileManager {
         }
     }
 
+    //Approval api will not be called for calling product
     @Override
-    public Status updateProfile(BusinessProfile profile, String product) {
+    public void updateProfile(BusinessProfile profile, String product) {
         BusinessProfile existingProfile = repository.getProductsByProfileId(profile.getId()).orElseThrow(() -> new NotFoundException(BusinessProfile.class.getSimpleName()));
-        List<String> subscribedProducts = existingProfile.getSubscribedProducts().stream().filter(p -> !p.equals(product)).collect(Collectors.toList());
-        validateProfile(profile, subscribedProducts);
+        validateProfile(profile, existingProfile.getSubscribedProducts(), product);
+        if (StringUtils.isNotBlank(product)) {
+            existingProfile.getSubscribedProducts().add(product);
+        }
         profile.setSubscribedProducts(existingProfile.getSubscribedProducts());
         repository.save(profile);
-        return Status.getSuccessStatus();
     }
 
-    private void validateProfile(BusinessProfile profile, List<String> products) {
+    private void validateProfile(BusinessProfile profile, Set<String> products, String callingProduct) {
+        products = products.stream().filter(p -> StringUtils.equals(p, callingProduct)).collect(Collectors.toSet());
         List<Future<ApprovalResponse>> futureResponses = getFutures(profile, products);
         validateFutureResponses(futureResponses);
     }
 
     private void validateFutureResponses(List<Future<ApprovalResponse>> futureResponses) {
-        while(true) {
+        while (!futureResponses.stream().allMatch(Future::isDone)) {
             try {
-                for (Future<ApprovalResponse> future : futureResponses) {
-                    if (future.isDone()) {
-                        ApprovalResponse response = future.get();
-                        validateResponse(response);
-                    }
-                }
-                if(futureResponses.stream().allMatch(Future::isDone)){
-                    break;
-                }
                 Thread.sleep(10);
-            } catch (ExecutionException | InterruptedException e) {
+            } catch (InterruptedException e) {
+                log.error("Error while waiting for approval response: {}", e.getMessage());
                 throw new RuntimeException(e);
             }
+            for (Future<ApprovalResponse> future : futureResponses) {
+                try {
+                    validateResponse(future.get());
+                } catch (ExecutionException | InterruptedException e) {
+                    log.error("Error while getting approval response: {}", e.getMessage());
+                    throw new RuntimeException(e);
+                }
+            }
         }
+
     }
 
     private void validateResponse(ApprovalResponse response) {
-        if (response.getStatus().equals("FAILED")) {
+        if (response.getStatus() == ApprovalStatus.FAILED) {
             throw new ServiceUnavailableException("Product Validation service");
-        } else if (!response.getStatus().equals("APPROVED")) {
-            throw new ValidationFailureException("Failed to validate profile. Errors : "+ response.getErrors());
+        } else if (response.getStatus() != ApprovalStatus.APPROVED) {
+            throw new ValidationFailureException("Failed to validate profile. Errors : " + response.getErrors());
         }
     }
 
-    private List<Future<ApprovalResponse>> getFutures(BusinessProfile profile, List<String> products) {
+    private List<Future<ApprovalResponse>> getFutures(BusinessProfile profile, Set<String> products) {
         List<Future<ApprovalResponse>> futureResponses = new ArrayList<>();
         for (String product : products) {
-            String url = productResource.getProductUrl(product);
-            if (StringUtils.isNotBlank(url)) {
-                futureResponses.add(asyncCallService.callWithRetry(profile, url));
+            String url = getProductUrl(product);
+            if (StringUtils.isBlank(url)) {
+                throw new NotFoundException("Business profile validation url exposed by product : '" + product + "' ");
             }
+            futureResponses.add(asyncService.getApproval(profile, url));
         }
         return futureResponses;
     }
 
+    private String getProductUrl(String productName) {
+        return env.getProperty("product-urls." + productName);
+    }
+
     @Override
-    public Status deleteProfile(String id) {
+    public void deleteProfile(String id) {
         repository.deleteById(id);
-        return Status.getSuccessStatus();
     }
 }
